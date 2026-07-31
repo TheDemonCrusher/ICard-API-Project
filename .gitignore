@@ -2,7 +2,10 @@
 .vs/
 *.user
 *.suo
+*.dtbcache.v2
+*.futdcache.v2
 *.userosscache
+DocumentLayout*.json
 *.sln.docstates
 *.userprops
 
