@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ICard API Project")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bcb3b58f917a87174b6735828980fb8bdee7e22e")]
 [assembly: System.Reflection.AssemblyProductAttribute("ICard API Project")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ICard API Project")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
