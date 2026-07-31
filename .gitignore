@@ -1,0 +1,44 @@
+## Ignore Visual Studio temporary files, build results, and user files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprops
+
+## Ignore Build / Output folders
+bin/
+obj/
+out/
+TestResults/
+
+## Ignore NuGet Packages
+packages/
+*.nupkg
+*.snupkg
+
+## ===================================================
+## Ignore Environment & Secret Config Files
+## ===================================================
+*.env
+*.env.local
+*.env.development
+*.env.test
+*.env.production
+.env*
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.override.json
+secrets.json
+
+## Ignore OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+.DS_Store
