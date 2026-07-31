@@ -1,24 +1,99 @@
-## Ignore Visual Studio temporary files, build results, and user files
-.vs/
-*.user
+# User-specific files
 *.suo
-*.dtbcache.v2
-*.futdcache.v2
+*.user
 *.userosscache
-DocumentLayout*.json
 *.sln.docstates
-*.userprops
 
-## Ignore Build / Output folders
-bin/
-obj/
-out/
-TestResults/
+# User-specific files (MonoDevelop/Xamarin Studio)
+*.userprefs
 
-## Ignore NuGet Packages
-packages/
+# Tools pulled down during build
+.tools/
+.dotnet/
+.packages/
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Visual Studio cache/options directory
+.vs/
+.vscode/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUNIT
+*.VisualState.xml
+TestResult.xml
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+.dotnet/
+
+# Files built by Visual Studio
+*_i.c
+*_p.c
+*_i.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Visual Studio profiler
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# Visual Studio Trace Files
+*.e2e
+
+# NuGet Packages
 *.nupkg
-*.snupkg
+# The packages folder can be ignored because of Package Restore
+**/[Pp]ackages/*
+# except build/, which is used as an MSBuild target.
+!**/[Pp]ackages/build/
+# NuGet v3's project.json files produces more ignorable files
+*.nuget.props
+*.nuget.targets
+
+# Visual Studio cache files
+# files ending in .cache can be ignored
+*.[Cc]ache
+# but keep track of directories ending in .cache
+!*.[Cc]ache/
 
 ## ===================================================
 ## Ignore Environment & Secret Config Files
