@@ -104,9 +104,8 @@ artifacts/
 *.env.test
 *.env.production
 .env*
-appsettings.Development.config
-appsettings.config
-appsettings.*.override.config
+App.Development.config
+App.*.override.config
 secrets.json
 
 ## Ignore OS generated files

@@ -20,8 +20,8 @@ namespace ICard_API_Project
 
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true);
+                .AddJsonFile("App.config", optional: false, reloadOnChange: true)
+                .AddJsonFile("App.Development.config", optional: true, reloadOnChange: true);
 
             Configuration = builder.Build();
 
