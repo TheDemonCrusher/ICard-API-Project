@@ -1,5 +1,7 @@
+using ICard_API_Project.Models;
 using Microsoft.Extensions.Configuration;
 using System.Configuration;
+using System.Text.Json;
 
 namespace ICard_API_Project
 {
@@ -24,10 +26,13 @@ namespace ICard_API_Project
                 return;
             }
             string endpoint = textBox1.Text + _configuration["Endpoints:SessionDetails"];
-            sendGetRequest(endpoint);
+            string jsonResult = await sendGetRequest(endpoint);
+
+            SessionDetails? details = JsonSerializer.Deserialize<SessionDetails>(jsonResult);
+            int a = 0;
         }
 
-        private void button2_Click(object sender, EventArgs e)
+        private async void button2_Click(object sender, EventArgs e)
         {
             if (textBox1.Text == String.Empty)
             {
@@ -35,10 +40,10 @@ namespace ICard_API_Project
                 return;
             }
             string endpoint = textBox1.Text + _configuration["Endpoints:DeviceUsage"];
-            sendGetRequest(endpoint);
+            string jsonResult = await sendGetRequest(endpoint);
         }
 
-        private void button3_Click(object sender, EventArgs e)
+        private async void button3_Click(object sender, EventArgs e)
         {
             if (textBox1.Text == String.Empty)
             {
@@ -46,11 +51,14 @@ namespace ICard_API_Project
                 return;
             }
             string endpoint = textBox1.Text + _configuration["Endpoints:DeviceLocation"];
-            sendGetRequest(endpoint);
+            string jsonResult = await sendGetRequest(endpoint);
+
+            DeviceLocation? locations = JsonSerializer.Deserialize<DeviceLocation>(jsonResult);
+            int a = 0;
         }
 
 
-        private async void sendGetRequest(string endpoint)
+        private async Task<string> sendGetRequest(string endpoint)
         {
             try
             {
@@ -60,12 +68,12 @@ namespace ICard_API_Project
 
                 response.EnsureSuccessStatusCode();
 
-                string jsonResult = await response.Content.ReadAsStringAsync();
-                MessageBox.Show(jsonResult, "API Response");
+                return await response.Content.ReadAsStringAsync();
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error calling API: " + ex.Message);
+                return null;
             }
         }
     }
