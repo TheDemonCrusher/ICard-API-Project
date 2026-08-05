@@ -19,10 +19,22 @@ namespace ICard_API_Project.Models
     internal class DeviceLocation
     {
         [JsonPropertyName("simLocations")]
-        public simLocations[]? locations { get; set; }
+        public simLocations[] locations { get; set; }
         public int pageNumber { get; set; }
         public bool lastPage { get; set; }
 
-        public DeviceLocation() { }
+        public DeviceLocation() 
+        {
+            locations = Array.Empty<simLocations>();
+            pageNumber = 1;
+            lastPage = false;
+        }
+
+        public void AddNextPage(DeviceLocation newPage)
+        {
+            pageNumber = newPage.pageNumber;
+            lastPage = newPage.lastPage;
+            locations = locations.Concat(newPage.locations).ToArray();
+        }
     }
 }

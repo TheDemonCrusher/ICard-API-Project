@@ -29,7 +29,7 @@ namespace ICard_API_Project
             string jsonResult = await sendGetRequest(endpoint);
 
             SessionDetails? details = JsonSerializer.Deserialize<SessionDetails>(jsonResult);
-            int a = 0;
+            //int a = 0;
         }
 
         private async void button2_Click(object sender, EventArgs e)
@@ -51,10 +51,22 @@ namespace ICard_API_Project
                 return;
             }
             string endpoint = textBox1.Text + _configuration["Endpoints:DeviceLocation"];
-            string jsonResult = await sendGetRequest(endpoint);
+            
+            DeviceLocation locations = new DeviceLocation();
 
-            DeviceLocation? locations = JsonSerializer.Deserialize<DeviceLocation>(jsonResult);
-            int a = 0;
+            while(locations.lastPage == false) //Multiple pages not tested yet
+            {
+                string jsonResult = await sendGetRequest(endpoint + $"?pageNumber={locations.pageNumber}");
+                DeviceLocation? currentPage = null;
+
+                if (jsonResult != null)
+                    currentPage = JsonSerializer.Deserialize<DeviceLocation>(jsonResult);
+
+                if (currentPage != null)
+                    locations.AddNextPage(currentPage);
+                else
+                    locations.lastPage = true;
+            }
         }
 
 
@@ -63,7 +75,7 @@ namespace ICard_API_Project
             try
             {
                 var client = _httpClientFactory.CreateClient("ICardApiClient");
-
+                
                 HttpResponseMessage response = await client.GetAsync(endpoint);
 
                 response.EnsureSuccessStatusCode();
