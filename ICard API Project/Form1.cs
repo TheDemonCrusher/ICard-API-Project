@@ -41,6 +41,8 @@ namespace ICard_API_Project
             }
             string endpoint = textBox1.Text + _configuration["Endpoints:DeviceUsage"];
             string jsonResult = await sendGetRequest(endpoint);
+
+            DeviceUsage? usage = JsonSerializer.Deserialize<DeviceUsage>(jsonResult);
         }
 
         private async void button3_Click(object sender, EventArgs e)
