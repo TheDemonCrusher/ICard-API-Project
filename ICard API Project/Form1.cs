@@ -126,17 +126,22 @@ namespace ICard_API_Project
             {
                 try
                 {
-                    for (int i = 0; i < 10; i++) // loop through all iccids in the iccid table, this loop will be a while(reader) or sth probably
+                    foreach (string iccid in await ReadIccidsToStringArrayAsync()) // loop through all iccids in the iccid table
                     {
                         CombinedInfo info = new CombinedInfo();
 
-                        string iccid = "next id"; // we get the current iccid and asign it to the combined model
                         info.iccid = iccid;
-                        info.details = await GetSessionDetailsAsync(iccid);
+                        info.session = await GetSessionDetailsAsync(iccid);
                         info.usage = await GetDeviceUsageAsync(iccid);
-                        info.location = await GetDeviceLocationsAsync(iccid);
+                        info.locations = await GetDeviceLocationsAsync(iccid);
 
-                        //write the information to the respective tables        
+                        //write the information to the respective tables
+                        if (info.usage is not null)
+                            await UpdateDatabaseWithDeviceUsagesAsync(info.usage);
+                        if (info.session is not null)
+                            await UpdateDatabaseWithSessionInfoAsync(info.session);
+                        if (info.locations is not null)
+                            await UpdateDatabaseWithDeviceLocationsAsync(info.locations);
                     }
                 }
                 catch (Exception ex) //TODO: Create a catch method specifically for database related errors to be handled differently
@@ -193,12 +198,88 @@ namespace ICard_API_Project
                     cmd.Parameters.AddWithValue("@sessionCount", data.sessionCount);
                     cmd.Parameters.AddWithValue("@overageLimitReached", data.overageLimitReached);
                     cmd.Parameters.AddWithValue("@overageLimitOverride", data.overageLimitOverride ?? (object)DBNull.Value);
-                    //cmd.Parameters.AddWithValue("@LastUpdated", DateTime.UtcNow);
 
                     await conn.OpenAsync();
                     await cmd.ExecuteNonQueryAsync();
                 }
             }
+        }
+
+        private async Task UpdateDatabaseWithSessionInfoAsync(SessionDetails data)
+        {
+            string? connString = _configuration["Database:ConnString"];
+
+            if (connString == String.Empty) //TODO: Make the user aware of this error
+                return;
+
+            string query = @"
+                IF EXISTS (SELECT 1 FROM SessionDetails WHERE iccid = @iccid)
+                BEGIN
+                    -- If it exists, update it
+                    UPDATE SessionDetails 
+                    SET dateSessionStarted = @startDate, dateSessionEnded = @endDate,  ipAddress = @ipv4, ipv6Address = @ipv6, apn = @apn
+                    WHERE iccid = @iccid
+                END
+                ELSE
+                BEGIN
+                    -- If it does not exist, insert it
+                    INSERT INTO SessionDetails (iccid, dateSessionStarted, dateSessionEnded, ipAddress, ipv6Address, apn) 
+                    VALUES (@iccid, @startDate, @endDate, @ipv4, @ipv6, @apn)
+                END";
+
+            using (SqlConnection conn = new SqlConnection(connString))
+            {
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@iccid", data.iccid);
+                    cmd.Parameters.AddWithValue("@startDate", data.convertToDateTime()[0]);
+                    cmd.Parameters.AddWithValue("@endDate", data.convertToDateTime()[1]);
+                    cmd.Parameters.AddWithValue("@ipv4", data.ipv4 ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ipv6", data.ipv6 ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@apn", data.apn ?? (object)DBNull.Value);
+
+                    await conn.OpenAsync();
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
+
+        private async Task UpdateDatabaseWithDeviceLocationsAsync(DeviceLocation data)
+        {
+            return;
+            //TODO: figure out the table/s needed for this one since its more complicated
+            //loop through all locations and insert/update them
+        }
+
+        private async Task<string[]> ReadIccidsToStringArrayAsync()
+        {
+            string connString = _configuration["Database:ConnString"];
+
+            string query = "SELECT iccid FROM Iccids";
+
+            List<string> items = new List<string>();
+
+            using (SqlConnection conn = new SqlConnection(connString))
+            {
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    await conn.OpenAsync();
+
+                    using (SqlDataReader reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            if (!reader.IsDBNull(0))
+                            {
+                                string rowValue = reader.GetString(0);
+                                items.Add(rowValue);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return items.ToArray();
         }
     }
 }

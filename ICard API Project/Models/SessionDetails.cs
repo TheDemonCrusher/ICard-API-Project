@@ -9,19 +9,19 @@ namespace ICard_API_Project.Models
         public string iccid { get; set; }
 
         [JsonPropertyName("dateSessionStarted")]
-        public string startDate { get; set; }
+        public string? startDate { get; set; }
 
         [JsonPropertyName("dateSessionEnded")]
-        public string endDate { get; set; }
+        public string? endDate { get; set; }
 
         [JsonPropertyName("ipAddress")]
-        public string ipv4 { get; set; }
+        public string? ipv4 { get; set; }
 
         [JsonPropertyName("ipv6Address")]
-        public string ipv6 { get; set; }
+        public string? ipv6 { get; set; }
 
         [JsonPropertyName("apn")]
-        public string apn { get; set; }
+        public string? apn { get; set; }
 
         //Will be needed when the datetime needs to be written to the database as an actual date and not just a string
         public DateTime[] convertToDateTime()
