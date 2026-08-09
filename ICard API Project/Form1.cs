@@ -9,6 +9,7 @@ namespace ICard_API_Project
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
+        private CancellationTokenSource _cancellationTokenSource;
 
         public Form1(IHttpClientFactory httpClientFactory, IConfiguration configuration)
         {
@@ -17,48 +18,60 @@ namespace ICard_API_Project
             _configuration = configuration;
         }
 
-        private async void button1_Click(object sender, EventArgs e)
+        private async Task<SessionDetails?> GetSessionDetailsAsync(string icid)
         {
-            
-            if (textBox1.Text == String.Empty)
-            {
-                MessageBox.Show("You must enter a device id first!");
-                return;
-            }
-            string endpoint = textBox1.Text + _configuration["Endpoints:SessionDetails"];
-            string jsonResult = await sendGetRequest(endpoint);
+            if (icid == String.Empty)
+                return null;
 
-            SessionDetails? details = JsonSerializer.Deserialize<SessionDetails>(jsonResult);
-            //int a = 0;
+            string endpoint = icid + _configuration["Endpoints:SessionDetails"];
+            string jsonResult = await sendGetRequestsAsync(endpoint);
+            if (jsonResult == null)
+                return null;
+
+            try
+            {
+                SessionDetails? details = JsonSerializer.Deserialize<SessionDetails>(jsonResult);
+                return details;
+            }
+            catch (Exception ex)
+            {
+                return null;
+            } 
         }
 
-        private async void button2_Click(object sender, EventArgs e)
+        private async Task<DeviceUsage?> GetDeviceUsageAsync(string icid)
         {
-            if (textBox1.Text == String.Empty)
-            {
-                MessageBox.Show("You must enter a device id first!");
-                return;
-            }
-            string endpoint = textBox1.Text + _configuration["Endpoints:DeviceUsage"];
-            string jsonResult = await sendGetRequest(endpoint);
+            if (icid == String.Empty)
+                return null;
 
-            DeviceUsage? usage = JsonSerializer.Deserialize<DeviceUsage>(jsonResult);
+            string endpoint = icid + _configuration["Endpoints:DeviceUsage"];
+            string jsonResult = await sendGetRequestsAsync(endpoint);
+            if (jsonResult == null)
+                return null;
+
+            try
+            {
+                DeviceUsage? usage = JsonSerializer.Deserialize<DeviceUsage>(jsonResult);
+                return usage;
+            }
+            catch (Exception ex)
+            {
+                return null;
+            }
         }
 
-        private async void button3_Click(object sender, EventArgs e)
+        private async Task<DeviceLocation?> GetDeviceLocationsAsync(string icid)
         {
-            if (textBox1.Text == String.Empty)
-            {
-                MessageBox.Show("You must enter a device id first!");
-                return;
-            }
-            string endpoint = textBox1.Text + _configuration["Endpoints:DeviceLocation"];
-            
+            if (icid == String.Empty)
+                return null;
+
+            string endpoint = icid + _configuration["Endpoints:DeviceLocation"];
+
             DeviceLocation locations = new DeviceLocation();
 
-            while(locations.lastPage == false) //Multiple pages not tested yet
+            while (locations.lastPage == false) //Multiple pages not tested yet
             {
-                string jsonResult = await sendGetRequest(endpoint + $"?pageNumber={locations.pageNumber}");
+                string jsonResult = await sendGetRequestsAsync(endpoint + $"?pageNumber={locations.pageNumber}");
                 DeviceLocation? currentPage = null;
 
                 if (jsonResult != null)
@@ -69,26 +82,77 @@ namespace ICard_API_Project
                 else
                     locations.lastPage = true;
             }
+            return locations;
         }
 
 
-        private async Task<string> sendGetRequest(string endpoint)
+        private async Task<string> sendGetRequestsAsync(string endpoint)
         {
             try
             {
                 var client = _httpClientFactory.CreateClient("ICardApiClient");
-                
-                HttpResponseMessage response = await client.GetAsync(endpoint);
 
+                HttpResponseMessage response = await client.GetAsync(endpoint);
                 response.EnsureSuccessStatusCode();
 
                 return await response.Content.ReadAsStringAsync();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error calling API: " + ex.Message);
+                //log error
                 return null;
             }
         }
+
+        private void startBtn_Click(object sender, EventArgs e)
+        {
+            _cancellationTokenSource = new CancellationTokenSource();
+            _ = RunApiBackgroundLoopAsync(_cancellationTokenSource.Token);
+        }
+
+        private void stopBtn_Click(object sender, EventArgs e)
+        {
+            if (_cancellationTokenSource != null)
+            {
+                _cancellationTokenSource.Cancel();
+                _cancellationTokenSource.Dispose();
+            }
+        }
+
+        private async Task RunApiBackgroundLoopAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    for (int i = 0; i < 10; i++) // loop through all icids in the icid table, this loop will be a while(reader) or sth probably
+                    {
+                        CombinedInfo info = new CombinedInfo();
+
+                        string icid = "next id"; // we get the current icid and asign it to the combined model
+                        info.icid = icid;
+                        info.details = await GetSessionDetailsAsync(icid);
+                        info.usage = await GetDeviceUsageAsync(icid);
+                        info.location = await GetDeviceLocationsAsync(icid);
+
+                        //write the information to the respective tables        
+                    }
+                }
+                catch (Exception ex)
+                {
+                    break;//log error
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(5), token);
+                }
+                catch (Exception ex)
+                {
+                    break;
+                }
+            }
+        }
+        
     }
 }
