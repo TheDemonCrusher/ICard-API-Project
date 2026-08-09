@@ -1,7 +1,9 @@
 using ICard_API_Project.Models;
 using Microsoft.Extensions.Configuration;
 using System.Configuration;
+using System.Reflection;
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 
 namespace ICard_API_Project
 {
@@ -18,12 +20,12 @@ namespace ICard_API_Project
             _configuration = configuration;
         }
 
-        private async Task<SessionDetails?> GetSessionDetailsAsync(string icid)
+        private async Task<SessionDetails?> GetSessionDetailsAsync(string iccid)
         {
-            if (icid == String.Empty)
+            if (iccid == String.Empty)
                 return null;
 
-            string endpoint = icid + _configuration["Endpoints:SessionDetails"];
+            string endpoint = iccid + _configuration["Endpoints:SessionDetails"];
             string jsonResult = await sendGetRequestsAsync(endpoint);
             if (jsonResult == null)
                 return null;
@@ -39,12 +41,12 @@ namespace ICard_API_Project
             } 
         }
 
-        private async Task<DeviceUsage?> GetDeviceUsageAsync(string icid)
+        private async Task<DeviceUsage?> GetDeviceUsageAsync(string iccid)
         {
-            if (icid == String.Empty)
+            if (iccid == String.Empty)
                 return null;
 
-            string endpoint = icid + _configuration["Endpoints:DeviceUsage"];
+            string endpoint = iccid + _configuration["Endpoints:DeviceUsage"];
             string jsonResult = await sendGetRequestsAsync(endpoint);
             if (jsonResult == null)
                 return null;
@@ -60,12 +62,12 @@ namespace ICard_API_Project
             }
         }
 
-        private async Task<DeviceLocation?> GetDeviceLocationsAsync(string icid)
+        private async Task<DeviceLocation?> GetDeviceLocationsAsync(string iccid)
         {
-            if (icid == String.Empty)
+            if (iccid == String.Empty)
                 return null;
 
-            string endpoint = icid + _configuration["Endpoints:DeviceLocation"];
+            string endpoint = iccid + _configuration["Endpoints:DeviceLocation"];
 
             DeviceLocation locations = new DeviceLocation();
 
@@ -124,15 +126,15 @@ namespace ICard_API_Project
             {
                 try
                 {
-                    for (int i = 0; i < 10; i++) // loop through all icids in the icid table, this loop will be a while(reader) or sth probably
+                    for (int i = 0; i < 10; i++) // loop through all iccids in the iccid table, this loop will be a while(reader) or sth probably
                     {
                         CombinedInfo info = new CombinedInfo();
 
-                        string icid = "next id"; // we get the current icid and asign it to the combined model
-                        info.icid = icid;
-                        info.details = await GetSessionDetailsAsync(icid);
-                        info.usage = await GetDeviceUsageAsync(icid);
-                        info.location = await GetDeviceLocationsAsync(icid);
+                        string iccid = "next id"; // we get the current iccid and asign it to the combined model
+                        info.iccid = iccid;
+                        info.details = await GetSessionDetailsAsync(iccid);
+                        info.usage = await GetDeviceUsageAsync(iccid);
+                        info.location = await GetDeviceLocationsAsync(iccid);
 
                         //write the information to the respective tables        
                     }
@@ -152,6 +154,51 @@ namespace ICard_API_Project
                 }
             }
         }
-        
+
+        private async Task UpdateDatabaseWithDeviceUsagesAsync(DeviceUsage data)
+        {
+            string? connString = _configuration["Database:ConnString"];
+
+            if (connString == String.Empty) //TODO: Make the user aware of this error
+                return;
+
+            string query = @"
+                IF EXISTS (SELECT 1 FROM DeviceUsages WHERE iccid = @iccid)
+                BEGIN
+                    -- If it exists, update it
+                    UPDATE DeviceUsages 
+                    SET imsi = @imsi, msisdn = @msisdn,  imei = @imei, status = @status, ratePlan = @ratePlan, communicationPlan = @communicationPlan, ctdDataUsage = @dataUsage, ctdVoiceUsage = @voiceUsage, ctdSessionCount = @sessionCount overageLimitReached = @overageLimitReached, overageLimitOverride = @overageLimitOverride 
+                    WHERE iccid = @iccid
+                END
+                ELSE
+                BEGIN
+                    -- If it does not exist, insert it
+                    INSERT INTO DeviceUsages (iccid, imsi, msisdn, imei, status, ratePlan, communicationPlan, ctdDataUsage, ctdVoiceUsage, ctdSessionCount, overageLimitReached, overageLimitOverride) 
+                    VALUES (@iccid, @imsi, @msisdn, @imei, @status, @ratePlan, @communicationPlan, @dataUsage, @voiceUsage, @sessionCount @overageLimitReached, @overageLimitOverride)
+                END";
+
+            using (SqlConnection conn = new SqlConnection(connString))
+            {
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@iccid", data.iccid);
+                    cmd.Parameters.AddWithValue("@imsi", data.imsi ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@msisdn", data.msisdn ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@imei", data.imei ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@status", data.status ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ratePlan", data.ratePlan ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@communicationPlan", data.communicationPlan);
+                    cmd.Parameters.AddWithValue("@dataUsage", data.dataUsage);
+                    cmd.Parameters.AddWithValue("@voiceUsage", data.voiceUsage);
+                    cmd.Parameters.AddWithValue("@sessionCount", data.sessionCount);
+                    cmd.Parameters.AddWithValue("@overageLimitReached", data.overageLimitReached);
+                    cmd.Parameters.AddWithValue("@overageLimitOverride", data.overageLimitOverride ?? (object)DBNull.Value);
+                    //cmd.Parameters.AddWithValue("@LastUpdated", DateTime.UtcNow);
+
+                    await conn.OpenAsync();
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
     }
 }

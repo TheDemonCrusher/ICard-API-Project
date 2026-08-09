@@ -8,19 +8,19 @@ namespace ICard_API_Project.Models
         public string iccid { get; set; }
 
         [JsonPropertyName("imsi")]
-        public string imsi { get; set; }
+        public string? imsi { get; set; }
 
         [JsonPropertyName("msisdn")]
-        public string msisdn { get; set; }
+        public string? msisdn { get; set; }
 
         [JsonPropertyName("imei")]
-        public string imei { get; set; }
+        public string? imei { get; set; }
 
         [JsonPropertyName("status")]
-        public string status { get; set; }
+        public string? status { get; set; }
 
         [JsonPropertyName("ratePlan")]
-        public string ratePlan { get; set; }
+        public string? ratePlan { get; set; }
 
         [JsonPropertyName("communicationPlan")]
         public int communicationPlan { get; set; }
@@ -37,6 +37,6 @@ namespace ICard_API_Project.Models
         [JsonPropertyName("overageLimitReached")]
         public bool overageLimitReached { get; set; }
         [JsonPropertyName("overageLimitOverride")]
-        public string overageLimitOverride { get; set; }
+        public string? overageLimitOverride { get; set; }
     }
 }
