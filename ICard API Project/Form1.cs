@@ -85,7 +85,6 @@ namespace ICard_API_Project
             return locations;
         }
 
-
         private async Task<string> sendGetRequestsAsync(string endpoint)
         {
             try
@@ -138,7 +137,7 @@ namespace ICard_API_Project
                         //write the information to the respective tables        
                     }
                 }
-                catch (Exception ex)
+                catch (Exception ex) //TODO: Create a catch method specifically for database related errors to be handled differently
                 {
                     break;//log error
                 }
