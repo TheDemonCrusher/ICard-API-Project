@@ -4,6 +4,7 @@ using System.Configuration;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
+using Dapper;
 
 namespace ICard_API_Project
 {
@@ -38,7 +39,7 @@ namespace ICard_API_Project
             catch (Exception ex)
             {
                 return null;
-            } 
+            }
         }
 
         private async Task<DeviceUsage?> GetDeviceUsageAsync(string iccid)
@@ -141,7 +142,7 @@ namespace ICard_API_Project
                         if (info.session is not null)
                             await UpdateDatabaseWithSessionInfoAsync(info.session);
                         if (info.locations is not null)
-                            await UpdateDatabaseWithDeviceLocationsAsync(info.locations);
+                            await UpdateDatabaseWithDeviceLocationsAsync(info.locations.all_locations);
                     }
                 }
                 catch (Exception ex) //TODO: Create a catch method specifically for database related errors to be handled differently
@@ -168,17 +169,17 @@ namespace ICard_API_Project
                 return;
 
             string query = @"
-                IF EXISTS (SELECT 1 FROM DeviceUsages WHERE iccid = @iccid)
+                IF EXISTS (SELECT 1 FROM device_usages WHERE iccid = @iccid)
                 BEGIN
                     -- If it exists, update it
-                    UPDATE DeviceUsages 
+                    UPDATE device_usages 
                     SET imsi = @imsi, msisdn = @msisdn,  imei = @imei, status = @status, ratePlan = @ratePlan, communicationPlan = @communicationPlan, ctdDataUsage = @dataUsage, ctdVoiceUsage = @voiceUsage, ctdSessionCount = @sessionCount overageLimitReached = @overageLimitReached, overageLimitOverride = @overageLimitOverride 
                     WHERE iccid = @iccid
                 END
                 ELSE
                 BEGIN
                     -- If it does not exist, insert it
-                    INSERT INTO DeviceUsages (iccid, imsi, msisdn, imei, status, ratePlan, communicationPlan, ctdDataUsage, ctdVoiceUsage, ctdSessionCount, overageLimitReached, overageLimitOverride) 
+                    INSERT INTO device_usages (iccid, imsi, msisdn, imei, status, ratePlan, communicationPlan, ctdDataUsage, ctdVoiceUsage, ctdSessionCount, overageLimitReached, overageLimitOverride) 
                     VALUES (@iccid, @imsi, @msisdn, @imei, @status, @ratePlan, @communicationPlan, @dataUsage, @voiceUsage, @sessionCount @overageLimitReached, @overageLimitOverride)
                 END";
 
@@ -213,17 +214,17 @@ namespace ICard_API_Project
                 return;
 
             string query = @"
-                IF EXISTS (SELECT 1 FROM SessionDetails WHERE iccid = @iccid)
+                IF EXISTS (SELECT 1 FROM session_details WHERE iccid = @iccid)
                 BEGIN
                     -- If it exists, update it
-                    UPDATE SessionDetails 
+                    UPDATE session_details 
                     SET dateSessionStarted = @startDate, dateSessionEnded = @endDate,  ipAddress = @ipv4, ipv6Address = @ipv6, apn = @apn
                     WHERE iccid = @iccid
                 END
                 ELSE
                 BEGIN
                     -- If it does not exist, insert it
-                    INSERT INTO SessionDetails (iccid, dateSessionStarted, dateSessionEnded, ipAddress, ipv6Address, apn) 
+                    INSERT INTO session_details (iccid, dateSessionStarted, dateSessionEnded, ipAddress, ipv6Address, apn) 
                     VALUES (@iccid, @startDate, @endDate, @ipv4, @ipv6, @apn)
                 END";
 
@@ -244,20 +245,45 @@ namespace ICard_API_Project
             }
         }
 
-        private async Task UpdateDatabaseWithDeviceLocationsAsync(DeviceLocation data)
+        private async Task UpdateDatabaseWithDeviceLocationsAsync(simLocations[] data)
         {
-            return;
-            //TODO: figure out the table/s needed for this one since its more complicated
-            //loop through all locations and insert/update them
+            string? connString = _configuration["Database:ConnString"];
+
+            if (connString == String.Empty) //TODO: Make the user aware of this error
+                return;
+
+            // Make sure any locations which couldnt have their dates parsed are filtered out
+            var validData = data.Where(record => record.dateReceived != null).ToArray();
+
+            string sql = @"
+            INSERT INTO device_locations (iccid, date_recieved, cellId, cellLac, servingMcc, servingMnc, latitude, longitude, accuracy, city, state, country)
+            SELECT @iccid, @dateReceived, @latitude, @longitude
+            WHERE NOT EXISTS (
+                SELECT 1 FROM device_locations 
+                WHERE iccid = @iccid 
+                AND dateReceived = @dateReceived
+            );";
+
+            using (var connection = new SqlConnection(connString))
+            {
+                await connection.OpenAsync();
+
+                // Passing the whole array executes the query for every item
+                await connection.ExecuteAsync(sql, validData);
+            }
         }
 
         private async Task<string[]> ReadIccidsToStringArrayAsync()
         {
-            string connString = _configuration["Database:ConnString"];
+            string? connString = _configuration["Database:ConnString"];
+
 
             string query = "SELECT iccid FROM Iccids";
 
             List<string> items = new List<string>();
+
+            if (connString == String.Empty) //TODO: Make the user aware of this error
+                return items.ToArray();
 
             using (SqlConnection conn = new SqlConnection(connString))
             {
