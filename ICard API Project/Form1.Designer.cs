@@ -32,21 +32,23 @@
             label1 = new Label();
             startBtn = new Button();
             stopBtn = new Button();
+            button4 = new Button();
             SuspendLayout();
             // 
             // textBox1
             // 
-            textBox1.Location = new Point(294, 99);
+            textBox1.Location = new Point(336, 132);
+            textBox1.Margin = new Padding(3, 4, 3, 4);
             textBox1.Name = "textBox1";
-            textBox1.Size = new Size(100, 23);
+            textBox1.Size = new Size(114, 27);
             textBox1.TabIndex = 1;
             // 
             // label1
             // 
             label1.AutoSize = true;
-            label1.Location = new Point(317, 81);
+            label1.Location = new Point(362, 108);
             label1.Name = "label1";
-            label1.Size = new Size(56, 15);
+            label1.Size = new Size(73, 20);
             label1.TabIndex = 2;
             label1.Text = "Device ID";
             // 
@@ -70,9 +72,19 @@
             stopBtn.UseVisualStyleBackColor = true;
             stopBtn.Click += stopBtn_Click;
             // 
+            // button4
+            // 
+            button4.Location = new Point(347, 269);
+            button4.Name = "button4";
+            button4.Size = new Size(94, 29);
+            button4.TabIndex = 5;
+            button4.Text = "Import";
+            button4.UseVisualStyleBackColor = true;
+            button4.Click += button4_Click;
+            // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(7F, 15F);
+            AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(725, 317);
             Controls.Add(stopBtn);
@@ -90,5 +102,6 @@
         private Label label1;
         private Button startBtn;
         private Button stopBtn;
+        private Button button4;
     }
 }

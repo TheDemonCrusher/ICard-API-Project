@@ -2,6 +2,8 @@ using ICard_API_Project.Models;
 using Microsoft.Extensions.Configuration;
 using System.Configuration;
 using System.Reflection;
+using System.IO;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using Dapper;
@@ -89,6 +91,39 @@ namespace ICard_API_Project
         }
 
         private async Task<string> sendGetRequestsAsync(string endpoint)
+        private void button4_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog dialog = new OpenFileDialog();
+            dialog.Filter = "CSV Files (*.csv)|*.csv|Excel Files (*.xls)|*.xls";
+            dialog.Multiselect = false;
+
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                string path = dialog.FileName;
+                List<string> firstColumn = new List<string>();
+
+                using (StreamReader reader = new StreamReader(new FileStream(path, FileMode.Open, FileAccess.Read), Encoding.UTF8))
+                {
+                    while (!reader.EndOfStream)
+                    {
+                        string line = reader.ReadLine();
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+
+                        // Split the row by comma and take the first item (index 0)
+                        string[] columns = line.Split(',');
+                        if (columns.Length > 0)
+                        {
+                            firstColumn.Add(columns[0].Trim());
+                        }
+                    }
+                }
+
+                // Example output: verify how many items were read
+                MessageBox.Show($"Successfully read {firstColumn.Count} items from column 1.");
+            }
+        }
+
+        private async Task<string> sendGetRequest(string endpoint)
         {
             try
             {
