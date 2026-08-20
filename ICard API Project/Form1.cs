@@ -91,8 +91,30 @@ namespace ICard_API_Project
         }
 
         private async Task<string> sendGetRequestsAsync(string endpoint)
-        private void button4_Click(object sender, EventArgs e)
         {
+            try
+            {
+                var client = _httpClientFactory.CreateClient("ICardApiClient");
+
+                HttpResponseMessage response = await client.GetAsync(endpoint);
+                response.EnsureSuccessStatusCode();
+
+                return await response.Content.ReadAsStringAsync();
+            }
+            catch (Exception ex)
+            {
+                //log error
+                return null;
+            }
+        }
+        private async void importBtn_Click(object sender, EventArgs e)
+        {
+            DialogResult choice = MessageBox.Show(
+            "Would you like to fully overwrite all iccids with the ones in this file? (iccids will simply update if not)",
+            "Choose an Option",                            
+            MessageBoxButtons.YesNo,                       
+            MessageBoxIcon.Question);
+
             OpenFileDialog dialog = new OpenFileDialog();
             dialog.Filter = "CSV Files (*.csv)|*.csv|Excel Files (*.xls)|*.xls";
             dialog.Multiselect = false;
@@ -117,27 +139,10 @@ namespace ICard_API_Project
                         }
                     }
                 }
-
-                // Example output: verify how many items were read
-                MessageBox.Show($"Successfully read {firstColumn.Count} items from column 1.");
-            }
-        }
-
-        private async Task<string> sendGetRequest(string endpoint)
-        {
-            try
-            {
-                var client = _httpClientFactory.CreateClient("ICardApiClient");
-
-                HttpResponseMessage response = await client.GetAsync(endpoint);
-                response.EnsureSuccessStatusCode();
-
-                return await response.Content.ReadAsStringAsync();
-            }
-            catch (Exception ex)
-            {
-                //log error
-                return null;
+                if (choice == DialogResult.Yes)
+                    await UpdateDatabaseWithIccidsAsync(firstColumn);
+                if (choice == DialogResult.No)
+                    await OverwriteDatabaseWithIccidsAsync(firstColumn);
             }
         }
 
@@ -200,7 +205,7 @@ namespace ICard_API_Project
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (connString == String.Empty) //TODO: Make the user aware of this error
+            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
                 return;
 
             string query = @"
@@ -245,22 +250,24 @@ namespace ICard_API_Project
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (connString == String.Empty) //TODO: Make the user aware of this error
+            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
                 return;
 
             string query = @"
-                IF EXISTS (SELECT 1 FROM session_details WHERE iccid = @iccid)
+                -- 1. Try to update the specific session first
+                UPDATE session_details 
+                SET 
+                    dateSessionEnded = @endDate, 
+                    ipAddress = @ipv4, 
+                    ipv6Address = @ipv6, 
+                    apn = @apn
+                WHERE iccid = @iccid AND dateSessionStarted = @startDate;
+
+                -- 2. If @@ROWCOUNT is 0, it means the record didn't exist yet
+                IF @@ROWCOUNT = 0
                 BEGIN
-                    -- If it exists, update it
-                    UPDATE session_details 
-                    SET dateSessionStarted = @startDate, dateSessionEnded = @endDate,  ipAddress = @ipv4, ipv6Address = @ipv6, apn = @apn
-                    WHERE iccid = @iccid
-                END
-                ELSE
-                BEGIN
-                    -- If it does not exist, insert it
                     INSERT INTO session_details (iccid, dateSessionStarted, dateSessionEnded, ipAddress, ipv6Address, apn) 
-                    VALUES (@iccid, @startDate, @endDate, @ipv4, @ipv6, @apn)
+                    VALUES (@iccid, @startDate, @endDate, @ipv4, @ipv6, @apn);
                 END";
 
             using (SqlConnection conn = new SqlConnection(connString))
@@ -284,20 +291,20 @@ namespace ICard_API_Project
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (connString == String.Empty) //TODO: Make the user aware of this error
+            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
                 return;
 
             // Make sure any locations which couldnt have their dates parsed are filtered out
             var validData = data.Where(record => record.dateReceived != null).ToArray();
 
             string sql = @"
-            INSERT INTO device_locations (iccid, date_recieved, cellId, cellLac, servingMcc, servingMnc, latitude, longitude, accuracy, city, state, country)
-            SELECT @iccid, @dateReceived, @latitude, @longitude
-            WHERE NOT EXISTS (
-                SELECT 1 FROM device_locations 
-                WHERE iccid = @iccid 
-                AND dateReceived = @dateReceived
-            );";
+                INSERT INTO device_locations (iccid, date_recieved, cellId, cellLac, servingMcc, servingMnc, latitude, longitude, accuracy, city, state, country)
+                SELECT @iccid, @dateReceived, @latitude, @longitude
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM device_locations 
+                    WHERE iccid = @iccid 
+                    AND dateReceived = @dateReceived
+                );";
 
             using (var connection = new SqlConnection(connString))
             {
@@ -308,16 +315,84 @@ namespace ICard_API_Project
             }
         }
 
-        private async Task<string[]> ReadIccidsToStringArrayAsync()
+        private async Task UpdateDatabaseWithIccidsAsync(List<string> data)
         {
             string? connString = _configuration["Database:ConnString"];
 
+            if (string.IsNullOrEmpty(connString))
+                return;
+
+            string sql = @"
+                INSERT INTO Iccids (iccid)
+                SELECT @Iccid
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM Iccids WHERE iccid = @Iccid
+                );";
+
+            var mappedData = data
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Select(x => new { Iccid = x })
+            .ToList();
+
+            if (mappedData.Count == 0) return;
+
+            using (var connection = new SqlConnection(connString))
+            {
+                await connection.OpenAsync();
+
+                await connection.ExecuteAsync(sql, mappedData);
+            }
+        }
+        private async Task OverwriteDatabaseWithIccidsAsync(List<string> data)
+        {
+            string? connString = _configuration["Database:ConnString"];
+
+            if (string.IsNullOrEmpty(connString))
+                return;
+
+            var mappedData = data
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Distinct()
+            .Select(x => new { Iccid = x })
+            .ToList();
+
+            string deleteSql = "DELETE FROM Iccids;";
+            string insertSql = "INSERT INTO Iccids (iccid) VALUES (@Iccid);";
+
+            using (var connection = new SqlConnection(connString))
+            {
+                await connection.OpenAsync();
+
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        await connection.ExecuteAsync(deleteSql, transaction: transaction);
+
+                        if (mappedData.Count > 0)
+                        {
+                            await connection.ExecuteAsync(insertSql, mappedData, transaction: transaction);
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+        private async Task<string[]> ReadIccidsToStringArrayAsync()
+        {
+            string? connString = _configuration["Database:ConnString"];
 
             string query = "SELECT iccid FROM Iccids";
 
             List<string> items = new List<string>();
 
-            if (connString == String.Empty) //TODO: Make the user aware of this error
+            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
                 return items.ToArray();
 
             using (SqlConnection conn = new SqlConnection(connString))
@@ -339,7 +414,7 @@ namespace ICard_API_Project
                     }
                 }
             }
-
+            items.RemoveAt(0);
             return items.ToArray();
         }
     }

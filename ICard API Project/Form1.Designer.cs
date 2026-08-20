@@ -32,31 +32,31 @@
             label1 = new Label();
             startBtn = new Button();
             stopBtn = new Button();
-            button4 = new Button();
+            importBtn = new Button();
             SuspendLayout();
             // 
             // textBox1
             // 
-            textBox1.Location = new Point(336, 132);
-            textBox1.Margin = new Padding(3, 4, 3, 4);
+            textBox1.Location = new Point(296, 99);
             textBox1.Name = "textBox1";
-            textBox1.Size = new Size(114, 27);
+            textBox1.Size = new Size(100, 23);
             textBox1.TabIndex = 1;
             // 
             // label1
             // 
             label1.AutoSize = true;
-            label1.Location = new Point(362, 108);
+            label1.Location = new Point(317, 81);
             label1.Name = "label1";
-            label1.Size = new Size(73, 20);
+            label1.Size = new Size(56, 15);
             label1.TabIndex = 2;
             label1.Text = "Device ID";
             // 
             // startBtn
             // 
-            startBtn.Location = new Point(226, 147);
+            startBtn.Location = new Point(255, 151);
+            startBtn.Margin = new Padding(3, 2, 3, 2);
             startBtn.Name = "startBtn";
-            startBtn.Size = new Size(75, 23);
+            startBtn.Size = new Size(61, 23);
             startBtn.TabIndex = 5;
             startBtn.Text = "Start";
             startBtn.UseVisualStyleBackColor = true;
@@ -64,33 +64,36 @@
             // 
             // stopBtn
             // 
-            stopBtn.Location = new Point(388, 147);
+            stopBtn.Location = new Point(379, 148);
+            stopBtn.Margin = new Padding(3, 2, 3, 2);
             stopBtn.Name = "stopBtn";
-            stopBtn.Size = new Size(75, 23);
+            stopBtn.Size = new Size(64, 26);
             stopBtn.TabIndex = 6;
             stopBtn.Text = "Stop";
             stopBtn.UseVisualStyleBackColor = true;
             stopBtn.Click += stopBtn_Click;
             // 
-            // button4
+            // importBtn
             // 
-            button4.Location = new Point(347, 269);
-            button4.Name = "button4";
-            button4.Size = new Size(94, 29);
-            button4.TabIndex = 5;
-            button4.Text = "Import";
-            button4.UseVisualStyleBackColor = true;
-            button4.Click += button4_Click;
+            importBtn.Location = new Point(317, 198);
+            importBtn.Name = "importBtn";
+            importBtn.Size = new Size(69, 26);
+            importBtn.TabIndex = 7;
+            importBtn.Text = "Import";
+            importBtn.UseVisualStyleBackColor = true;
+            importBtn.Click += importBtn_Click;
             // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(8F, 20F);
+            AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(725, 317);
+            ClientSize = new Size(696, 317);
+            Controls.Add(importBtn);
             Controls.Add(stopBtn);
             Controls.Add(startBtn);
             Controls.Add(label1);
             Controls.Add(textBox1);
+            Margin = new Padding(3, 2, 3, 2);
             Name = "Form1";
             Text = "Form1";
             ResumeLayout(false);
@@ -102,6 +105,6 @@
         private Label label1;
         private Button startBtn;
         private Button stopBtn;
-        private Button button4;
+        private Button importBtn;
     }
 }
