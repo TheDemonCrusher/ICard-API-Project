@@ -1,12 +1,15 @@
+using Dapper;
 using ICard_API_Project.Models;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Configuration;
-using System.Reflection;
 using System.IO;
+using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Data.SqlClient;
-using Dapper;
 
 namespace ICard_API_Project
 {
@@ -82,10 +85,10 @@ namespace ICard_API_Project
                 if (jsonResult != null)
                     currentPage = JsonSerializer.Deserialize<DeviceLocation>(jsonResult);
 
-                if (currentPage != null)
-                    locations.AddNextPage(currentPage);
-                else
+                if (currentPage == null || currentPage.all_locations == null)
                     locations.lastPage = true;
+                else
+                    locations.AddNextPage(currentPage);
             }
             return locations;
         }
@@ -101,6 +104,12 @@ namespace ICard_API_Project
 
                 return await response.Content.ReadAsStringAsync();
             }
+            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                // This catch block ONLY runs if it was exactly a 429 error
+                MessageBox.Show($"Hit API rate limit. Try lowering MaxDegreeOfParallelism.");
+                return null;
+            }
             catch (Exception ex)
             {
                 //log error
@@ -111,8 +120,8 @@ namespace ICard_API_Project
         {
             DialogResult choice = MessageBox.Show(
             "Would you like to fully overwrite all iccids with the ones in this file? (iccids will simply update if not)",
-            "Choose an Option",                            
-            MessageBoxButtons.YesNo,                       
+            "Choose an Option",
+            MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
 
             OpenFileDialog dialog = new OpenFileDialog();
@@ -148,6 +157,12 @@ namespace ICard_API_Project
 
         private void startBtn_Click(object sender, EventArgs e)
         {
+            if (_cancellationTokenSource != null)
+                return;
+
+            startBtn.Enabled = false;
+            stopBtn.Enabled = true;
+
             _cancellationTokenSource = new CancellationTokenSource();
             _ = RunApiBackgroundLoopAsync(_cancellationTokenSource.Token);
         }
@@ -158,6 +173,9 @@ namespace ICard_API_Project
             {
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource.Dispose();
+                _cancellationTokenSource = null;
+                startBtn.Enabled = true;
+                stopBtn.Enabled = false;
             }
         }
 
@@ -167,23 +185,62 @@ namespace ICard_API_Project
             {
                 try
                 {
-                    foreach (string iccid in await ReadIccidsToStringArrayAsync()) // loop through all iccids in the iccid table
+                    string[] ids = await ReadIccidsToStringArrayAsync();
+
+                    var allSessions = new ConcurrentBag<SessionDetails>();
+                    var allUsages = new ConcurrentBag<DeviceUsage>();
+                    var allLocations = new ConcurrentBag<simLocations>();
+
+                    // 2. Set up parallel rules (e.g., process 10 ICCIDs at a time)
+                    var parallelOptions = new ParallelOptions
                     {
-                        CombinedInfo info = new CombinedInfo();
+                        MaxDegreeOfParallelism = 20, // Adjust this up or down based on API rate limits
+                        CancellationToken = token
+                    };
 
-                        info.iccid = iccid;
-                        info.session = await GetSessionDetailsAsync(iccid);
-                        info.usage = await GetDeviceUsageAsync(iccid);
-                        info.locations = await GetDeviceLocationsAsync(iccid);
+                    int processedCount = 0;
 
-                        //write the information to the respective tables
-                        if (info.usage is not null)
-                            await UpdateDatabaseWithDeviceUsagesAsync(info.usage);
-                        if (info.session is not null)
-                            await UpdateDatabaseWithSessionInfoAsync(info.session);
-                        if (info.locations is not null)
-                            await UpdateDatabaseWithDeviceLocationsAsync(info.locations.all_locations);
-                    }
+                    // 3. The Parallel Loop
+                    await Parallel.ForEachAsync(ids, parallelOptions, async (iccid, ct) =>
+                    {
+                        //int currentCount = Interlocked.Increment(ref processedCount);
+                        //if (currentCount % 2000 == 0)
+                        //{
+                        //    System.Diagnostics.Debugger.Break();
+                        //}
+                        // (These run concurrently for multiple ICCIDs at once)
+                        var sessionTask = GetSessionDetailsAsync(iccid);
+                        var usageTask = GetDeviceUsageAsync(iccid);
+                        var locationsTask = GetDeviceLocationsAsync(iccid);
+
+                        await Task.WhenAll(sessionTask, usageTask, locationsTask);
+
+                        // Add to our thread-safe bags
+                        if (sessionTask.Result != null)
+                            allSessions.Add(sessionTask.Result);
+
+                        if (usageTask.Result != null)
+                            allUsages.Add(usageTask.Result);
+
+                        if (locationsTask.Result?.all_locations != null)
+                        {
+                            // ConcurrentBag doesn't have AddRange, so we loop
+                            foreach (var loc in locationsTask.Result.raw_locations)
+                            {
+                                allLocations.Add(loc);
+                            }
+                        }
+                    });
+
+                    // 4. Send to database (Convert Bags back to Lists for your Dapper methods)
+                    if (!allUsages.IsEmpty)
+                        await UpdateDatabaseWithDeviceUsagesAsync(allUsages.ToList());
+
+                    if (!allSessions.IsEmpty)
+                        await UpdateDatabaseWithSessionInfoAsync(allSessions.ToList());
+
+                    if (!allLocations.IsEmpty)
+                        await UpdateDatabaseWithDeviceLocationsAsync(allLocations.ToList());
                 }
                 catch (Exception ex) //TODO: Create a catch method specifically for database related errors to be handled differently
                 {
@@ -201,93 +258,93 @@ namespace ICard_API_Project
             }
         }
 
-        private async Task UpdateDatabaseWithDeviceUsagesAsync(DeviceUsage data)
+        private async Task UpdateDatabaseWithDeviceUsagesAsync(List<DeviceUsage> dataList)
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
+            if (string.IsNullOrEmpty(connString) || dataList.Count == 0) //TODO: Make the user aware of this error
                 return;
 
             string query = @"
-                IF EXISTS (SELECT 1 FROM device_usages WHERE iccid = @iccid)
+                UPDATE device_usages 
+                SET 
+                    imsi = @imsi, msisdn = @msisdn, imei = @imei, status = @status, 
+                    ratePlan = @ratePlan, communicationPlan = @communicationPlan, 
+                    ctdDataUsage = @dataUsage, ctdVoiceUsage = @voiceUsage, 
+                    ctdSessionCount = @sessionCount, overageLimitReached = @overageLimitReached, 
+                    overageLimitOverride = @overageLimitOverride 
+                WHERE iccid = @iccid;
+
+                IF @@ROWCOUNT = 0
                 BEGIN
-                    -- If it exists, update it
-                    UPDATE device_usages 
-                    SET imsi = @imsi, msisdn = @msisdn,  imei = @imei, status = @status, ratePlan = @ratePlan, communicationPlan = @communicationPlan, ctdDataUsage = @dataUsage, ctdVoiceUsage = @voiceUsage, ctdSessionCount = @sessionCount overageLimitReached = @overageLimitReached, overageLimitOverride = @overageLimitOverride 
-                    WHERE iccid = @iccid
-                END
-                ELSE
-                BEGIN
-                    -- If it does not exist, insert it
                     INSERT INTO device_usages (iccid, imsi, msisdn, imei, status, ratePlan, communicationPlan, ctdDataUsage, ctdVoiceUsage, ctdSessionCount, overageLimitReached, overageLimitOverride) 
-                    VALUES (@iccid, @imsi, @msisdn, @imei, @status, @ratePlan, @communicationPlan, @dataUsage, @voiceUsage, @sessionCount @overageLimitReached, @overageLimitOverride)
+                    VALUES (@iccid, @imsi, @msisdn, @imei, @status, @ratePlan, @communicationPlan, @dataUsage, @voiceUsage, @sessionCount, @overageLimitReached, @overageLimitOverride);
                 END";
 
             using (SqlConnection conn = new SqlConnection(connString))
             {
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@iccid", data.iccid);
-                    cmd.Parameters.AddWithValue("@imsi", data.imsi ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@msisdn", data.msisdn ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@imei", data.imei ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", data.status ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ratePlan", data.ratePlan ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@communicationPlan", data.communicationPlan);
-                    cmd.Parameters.AddWithValue("@dataUsage", data.dataUsage);
-                    cmd.Parameters.AddWithValue("@voiceUsage", data.voiceUsage);
-                    cmd.Parameters.AddWithValue("@sessionCount", data.sessionCount);
-                    cmd.Parameters.AddWithValue("@overageLimitReached", data.overageLimitReached);
-                    cmd.Parameters.AddWithValue("@overageLimitOverride", data.overageLimitOverride ?? (object)DBNull.Value);
+                await conn.OpenAsync();
 
-                    await conn.OpenAsync();
-                    await cmd.ExecuteNonQueryAsync();
-                }
+                // Dapper automatically reads your properties and handles all nulls!
+                await conn.ExecuteAsync(query, dataList);
             }
         }
 
-        private async Task UpdateDatabaseWithSessionInfoAsync(SessionDetails data)
+        private async Task UpdateDatabaseWithSessionInfoAsync(List<SessionDetails> dataList)
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
+            if (string.IsNullOrEmpty(connString) || dataList.Count == 0) //TODO: Make the user aware of this error
                 return;
 
             string query = @"
-                -- 1. Try to update the specific session first
                 UPDATE session_details 
                 SET 
                     dateSessionEnded = @endDate, 
                     ipAddress = @ipv4, 
                     ipv6Address = @ipv6, 
                     apn = @apn
-                WHERE iccid = @iccid AND dateSessionStarted = @startDate;
+                WHERE iccid = @iccid 
+                AND (
+                    dateSessionStarted = @startDate 
+                    OR (dateSessionStarted IS NULL AND @startDate IS NULL)
+                );
 
-                -- 2. If @@ROWCOUNT is 0, it means the record didn't exist yet
                 IF @@ROWCOUNT = 0
                 BEGIN
                     INSERT INTO session_details (iccid, dateSessionStarted, dateSessionEnded, ipAddress, ipv6Address, apn) 
                     VALUES (@iccid, @startDate, @endDate, @ipv4, @ipv6, @apn);
                 END";
 
+            // Prepare the data to handle the 1753 date rule and map names to the @parameters
+            var mappedData = dataList.Select(data =>
+            {
+                var parsedDates = data.convertToDateTime();
+                DateTime? startDate = parsedDates[0];
+                DateTime? endDate = parsedDates[1];
+
+                return new
+                {
+                    iccid = data.iccid,
+                    // If valid, use the date. If not, pass C# null (Dapper turns this into DBNull)
+                    startDate = (startDate.HasValue && startDate.Value.Year >= 1753) ? startDate.Value : (DateTime?)null,
+                    endDate = (endDate.HasValue && endDate.Value.Year >= 1753) ? endDate.Value : (DateTime?)null,
+                    ipv4 = data.ipv4,
+                    ipv6 = data.ipv6,
+                    apn = data.apn
+                };
+            }).ToList();
+
             using (SqlConnection conn = new SqlConnection(connString))
             {
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@iccid", data.iccid);
-                    cmd.Parameters.AddWithValue("@startDate", data.convertToDateTime()[0]);
-                    cmd.Parameters.AddWithValue("@endDate", data.convertToDateTime()[1]);
-                    cmd.Parameters.AddWithValue("@ipv4", data.ipv4 ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ipv6", data.ipv6 ?? (object)DBNull.Value);
-                    cmd.Parameters.AddWithValue("@apn", data.apn ?? (object)DBNull.Value);
+                await conn.OpenAsync();
 
-                    await conn.OpenAsync();
-                    await cmd.ExecuteNonQueryAsync();
-                }
+                // Pass the entire list at once. Dapper executes the query for every item efficiently.
+                await conn.ExecuteAsync(query, mappedData);
             }
         }
 
-        private async Task UpdateDatabaseWithDeviceLocationsAsync(simLocations[] data)
+        private async Task UpdateDatabaseWithDeviceLocationsAsync(List<simLocations> data)
         {
             string? connString = _configuration["Database:ConnString"];
 
@@ -295,23 +352,47 @@ namespace ICard_API_Project
                 return;
 
             // Make sure any locations which couldnt have their dates parsed are filtered out
-            var validData = data.Where(record => record.dateReceived != null).ToArray();
-
+            var validData = data.Where(record => record.dateReceived != null).ToList();
+            
             string sql = @"
-                INSERT INTO device_locations (iccid, date_recieved, cellId, cellLac, servingMcc, servingMnc, latitude, longitude, accuracy, city, state, country)
-                SELECT @iccid, @dateReceived, @latitude, @longitude
+                INSERT INTO device_locations (
+                    iccid, dateReceived, cellId, cellLac, servingMcc, servingMnc, 
+                    latitude, longitude, accuracy, city, state, country
+                )
+                SELECT 
+                    @iccid, @dateReceived, @cellId, @cellLac, @servingMcc, @servingMnc, 
+                    @latitude, @longitude, @accuracy, @city, @state, @country
                 WHERE NOT EXISTS (
                     SELECT 1 FROM device_locations 
                     WHERE iccid = @iccid 
                     AND dateReceived = @dateReceived
                 );";
 
+            DeviceLocation devices = new DeviceLocation();
+            devices.raw_locations = validData;
+            devices.ConvertLocations();
+            var mappedData = devices.all_locations.Select(data => new
+            {
+                iccid = data.iccid,
+                dateReceived = data.dateReceived, // Ensure 1753 check is here if needed
+                cellId = data.cellId,
+                cellLac = data.cellLac,
+                servingMcc = data.servingMcc,
+                servingMnc = data.servingMnc,
+                latitude = data.latitude,
+                longitude = data.longitude,
+                accuracy = data.accuracy,
+                city = data.city,
+                state = data.state,
+                country = data.country
+            }).ToList();
+
             using (var connection = new SqlConnection(connString))
             {
                 await connection.OpenAsync();
 
                 // Passing the whole array executes the query for every item
-                await connection.ExecuteAsync(sql, validData);
+                await connection.ExecuteAsync(sql, mappedData);
             }
         }
 

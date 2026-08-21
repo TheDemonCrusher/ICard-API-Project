@@ -23,7 +23,7 @@ namespace ICard_API_Project.Models
         public string? ratePlan { get; set; }
 
         [JsonPropertyName("communicationPlan")]
-        public int communicationPlan { get; set; }
+        public string? communicationPlan { get; set; }
 
         [JsonPropertyName("ctdDataUsage")]
         public int dataUsage { get; set; }
