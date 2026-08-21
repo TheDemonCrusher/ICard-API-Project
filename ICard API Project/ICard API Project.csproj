@@ -10,18 +10,25 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
+    <PackageReference Include="ExcelDataReader" Version="3.9.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Xml" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="appsettings.Development.json">
+    <None Update="App.Development.config">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Update="appsettings.Development.json">
+    <None Update="App.config">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="App.Development.config">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="appsettings.json">
