@@ -77,7 +77,7 @@ namespace ICard_API_Project
 
             DeviceLocation locations = new DeviceLocation();
 
-            while (locations.lastPage == false) //Multiple pages not tested yet
+            while (locations.lastPage == false) //Multiple pages not tested yet since none are in the sample data
             {
                 string jsonResult = await sendGetRequestsAsync(endpoint + $"?pageNumber={locations.pageNumber}");
                 DeviceLocation? currentPage = null;
@@ -106,7 +106,6 @@ namespace ICard_API_Project
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                // This catch block ONLY runs if it was exactly a 429 error
                 MessageBox.Show($"Hit API rate limit. Try lowering MaxDegreeOfParallelism.");
                 return null;
             }
@@ -191,23 +190,16 @@ namespace ICard_API_Project
                     var allUsages = new ConcurrentBag<DeviceUsage>();
                     var allLocations = new ConcurrentBag<simLocations>();
 
-                    // 2. Set up parallel rules (e.g., process 10 ICCIDs at a time)
                     var parallelOptions = new ParallelOptions
                     {
-                        MaxDegreeOfParallelism = 20, // Adjust this up or down based on API rate limits
+                        MaxDegreeOfParallelism = 20,
                         CancellationToken = token
                     };
 
                     int processedCount = 0;
 
-                    // 3. The Parallel Loop
                     await Parallel.ForEachAsync(ids, parallelOptions, async (iccid, ct) =>
                     {
-                        //int currentCount = Interlocked.Increment(ref processedCount);
-                        //if (currentCount % 2000 == 0)
-                        //{
-                        //    System.Diagnostics.Debugger.Break();
-                        //}
                         // (These run concurrently for multiple ICCIDs at once)
                         var sessionTask = GetSessionDetailsAsync(iccid);
                         var usageTask = GetDeviceUsageAsync(iccid);
@@ -215,7 +207,6 @@ namespace ICard_API_Project
 
                         await Task.WhenAll(sessionTask, usageTask, locationsTask);
 
-                        // Add to our thread-safe bags
                         if (sessionTask.Result != null)
                             allSessions.Add(sessionTask.Result);
 
@@ -224,7 +215,6 @@ namespace ICard_API_Project
 
                         if (locationsTask.Result?.all_locations != null)
                         {
-                            // ConcurrentBag doesn't have AddRange, so we loop
                             foreach (var loc in locationsTask.Result.raw_locations)
                             {
                                 allLocations.Add(loc);
@@ -232,7 +222,6 @@ namespace ICard_API_Project
                         }
                     });
 
-                    // 4. Send to database (Convert Bags back to Lists for your Dapper methods)
                     if (!allUsages.IsEmpty)
                         await UpdateDatabaseWithDeviceUsagesAsync(allUsages.ToList());
 
@@ -285,7 +274,6 @@ namespace ICard_API_Project
             {
                 await conn.OpenAsync();
 
-                // Dapper automatically reads your properties and handles all nulls!
                 await conn.ExecuteAsync(query, dataList);
             }
         }
@@ -316,7 +304,6 @@ namespace ICard_API_Project
                     VALUES (@iccid, @startDate, @endDate, @ipv4, @ipv6, @apn);
                 END";
 
-            // Prepare the data to handle the 1753 date rule and map names to the @parameters
             var mappedData = dataList.Select(data =>
             {
                 var parsedDates = data.convertToDateTime();
@@ -326,7 +313,6 @@ namespace ICard_API_Project
                 return new
                 {
                     iccid = data.iccid,
-                    // If valid, use the date. If not, pass C# null (Dapper turns this into DBNull)
                     startDate = (startDate.HasValue && startDate.Value.Year >= 1753) ? startDate.Value : (DateTime?)null,
                     endDate = (endDate.HasValue && endDate.Value.Year >= 1753) ? endDate.Value : (DateTime?)null,
                     ipv4 = data.ipv4,
@@ -339,7 +325,6 @@ namespace ICard_API_Project
             {
                 await conn.OpenAsync();
 
-                // Pass the entire list at once. Dapper executes the query for every item efficiently.
                 await conn.ExecuteAsync(query, mappedData);
             }
         }
@@ -374,7 +359,7 @@ namespace ICard_API_Project
             var mappedData = devices.all_locations.Select(data => new
             {
                 iccid = data.iccid,
-                dateReceived = data.dateReceived, // Ensure 1753 check is here if needed
+                dateReceived = data.dateReceived,
                 cellId = data.cellId,
                 cellLac = data.cellLac,
                 servingMcc = data.servingMcc,
@@ -391,7 +376,6 @@ namespace ICard_API_Project
             {
                 await connection.OpenAsync();
 
-                // Passing the whole array executes the query for every item
                 await connection.ExecuteAsync(sql, mappedData);
             }
         }
