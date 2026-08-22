@@ -3,13 +3,11 @@ using ICard_API_Project.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Configuration;
-using System.IO;
 using System.Net;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Serilog;
+using ICard_API_Project.Exceptions;
 
 namespace ICard_API_Project
 {
@@ -35,14 +33,20 @@ namespace ICard_API_Project
             string jsonResult = await sendGetRequestsAsync(endpoint);
             if (jsonResult == null)
                 return null;
-
+            
             try
             {
                 SessionDetails? details = JsonSerializer.Deserialize<SessionDetails>(jsonResult);
                 return details;
             }
+            catch (JsonException jsonEx)
+            {
+                Log.Error(jsonEx, "Failed to deserialize Session Details for ICCID: {Iccid}. Raw JSON: {Json}", iccid, jsonResult);
+                return null;
+            }
             catch (Exception ex)
             {
+                Log.Error(ex, "An unexpected error occurred while parsing Session Details for ICCID: {Iccid}", iccid);
                 return null;
             }
         }
@@ -62,8 +66,14 @@ namespace ICard_API_Project
                 DeviceUsage? usage = JsonSerializer.Deserialize<DeviceUsage>(jsonResult);
                 return usage;
             }
+            catch (JsonException jsonEx)
+            {
+                Log.Error(jsonEx, "Failed to deserialize Device Usage for ICCID: {Iccid}. Raw JSON: {Json}", iccid, jsonResult);
+                return null;
+            }
             catch (Exception ex)
             {
+                Log.Error(ex, "An unexpected error occurred while parsing Device Usage for ICCID: {Iccid}", iccid);
                 return null;
             }
         }
@@ -82,8 +92,22 @@ namespace ICard_API_Project
                 string jsonResult = await sendGetRequestsAsync(endpoint + $"?pageNumber={locations.pageNumber}");
                 DeviceLocation? currentPage = null;
 
-                if (jsonResult != null)
-                    currentPage = JsonSerializer.Deserialize<DeviceLocation>(jsonResult);
+                try
+                {
+                    if (jsonResult != null)
+                        currentPage = JsonSerializer.Deserialize<DeviceLocation>(jsonResult);
+                }
+                catch (JsonException jsonEx)
+                {
+                    Log.Error(jsonEx, "Failed to deserialize Device Location on page {PageNum} for ICCID: {Iccid}. Raw JSON: {Json}", locations.pageNumber, iccid, jsonResult);
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "An unexpected error occurred while parsing Device Location on page {PageNum} for ICCID: {Iccid}", locations.pageNumber, iccid);
+                    return null;
+                }
+                
 
                 if (currentPage == null || currentPage.all_locations == null)
                     locations.lastPage = true;
@@ -106,15 +130,26 @@ namespace ICard_API_Project
             }
             catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                MessageBox.Show($"Hit API rate limit. Try lowering MaxDegreeOfParallelism.");
+                Log.Warning(ex, "Hit API rate limit. Try lowering MaxDegreeOfParallelism.");
                 return null;
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                //log error
+                Log.Warning(ex, "API request failed with status code: {StatusCode}", ex.StatusCode);
+                return null;
+            }
+            catch (TaskCanceledException ex)
+            {
+                Log.Warning(ex, "API request timed out.");
+                return null;
+            }
+            catch (JsonException ex)
+            {
+                Log.Error(ex, "API returned invalid JSON data.");
                 return null;
             }
         }
+
         private async void importBtn_Click(object sender, EventArgs e)
         {
             DialogResult choice = MessageBox.Show(
@@ -147,10 +182,26 @@ namespace ICard_API_Project
                         }
                     }
                 }
-                if (choice == DialogResult.Yes)
-                    await UpdateDatabaseWithIccidsAsync(firstColumn);
-                if (choice == DialogResult.No)
-                    await OverwriteDatabaseWithIccidsAsync(firstColumn);
+                try
+                {
+                    if (choice == DialogResult.Yes)
+                        await UpdateDatabaseWithIccidsAsync(firstColumn);
+                    if (choice == DialogResult.No)
+                        await OverwriteDatabaseWithIccidsAsync(firstColumn);
+
+                    Log.Information("ICCID database sync completed successfully.");
+                    MessageBox.Show("Sync complete!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (DatabaseSyncException dbEx)
+                {
+                    Log.Error(dbEx, "Database sync failed during user-initiated update.");
+                    MessageBox.Show("Failed to save to the database. Check the logs.", "Database Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                catch (Exception ex)
+                {
+                    Log.Fatal(ex, "An unexpected application error occurred during ICCID sync.");
+                    MessageBox.Show("A critical error occurred.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
@@ -159,6 +210,10 @@ namespace ICard_API_Project
             if (_cancellationTokenSource != null)
                 return;
 
+            if (!ValidateDatabaseConnection())
+                return;
+
+            Log.Information("Auto updates started.");
             startBtn.Enabled = false;
             stopBtn.Enabled = true;
 
@@ -170,6 +225,7 @@ namespace ICard_API_Project
         {
             if (_cancellationTokenSource != null)
             {
+                Log.Information("Auto updates stopped.");
                 _cancellationTokenSource.Cancel();
                 _cancellationTokenSource.Dispose();
                 _cancellationTokenSource = null;
@@ -223,17 +279,48 @@ namespace ICard_API_Project
                     });
 
                     if (!allUsages.IsEmpty)
-                        await UpdateDatabaseWithDeviceUsagesAsync(allUsages.ToList());
+                    {
+                        try
+                        {
+                            await UpdateDatabaseWithDeviceUsagesAsync(allUsages.ToList());
+                            Log.Information("Successfully updated {Count} Device Usages.", allUsages.Count);
+                        }
+                        catch (DatabaseSyncException dbEx)
+                        {
+                            Log.Error(dbEx, "Bulk update failed for Device Usages.");
+                        }
+                    }
 
                     if (!allSessions.IsEmpty)
-                        await UpdateDatabaseWithSessionInfoAsync(allSessions.ToList());
+                    {
+                        try
+                        {
+                            await UpdateDatabaseWithSessionInfoAsync(allSessions.ToList());
+                            Log.Information("Successfully updated {Count} Session Details.", allSessions.Count);
+                        }
+                        catch (DatabaseSyncException dbEx)
+                        {
+                            Log.Error(dbEx, "Bulk update failed for Session Details.");
+                        }
+                    }
 
                     if (!allLocations.IsEmpty)
-                        await UpdateDatabaseWithDeviceLocationsAsync(allLocations.ToList());
+                    {
+                        try
+                        {
+                            await UpdateDatabaseWithDeviceLocationsAsync(allLocations.ToList());
+                            Log.Information("Successfully updated {Count} Device Locations.", allLocations.Count);
+                        }
+                        catch (DatabaseSyncException dbEx)
+                        {
+                            Log.Error(dbEx, "Bulk update failed for Device Locations.");
+                        }
+                    }
                 }
-                catch (Exception ex) //TODO: Create a catch method specifically for database related errors to be handled differently
+                catch (Exception ex)
                 {
-                    break;//log error
+                    Log.Error(ex, "An unexpected error occurred while parsing Device Location on page {PageNum} for ICCID: {Iccid}", locations.pageNumber, iccid);
+                    break;
                 }
 
                 try
@@ -242,6 +329,7 @@ namespace ICard_API_Project
                 }
                 catch (Exception ex)
                 {
+                    Log.Error(ex, "An unexpected error occurred while parsing Device Location on page {PageNum} for ICCID: {Iccid}", locations.pageNumber, iccid);
                     break;
                 }
             }
@@ -250,9 +338,6 @@ namespace ICard_API_Project
         private async Task UpdateDatabaseWithDeviceUsagesAsync(List<DeviceUsage> dataList)
         {
             string? connString = _configuration["Database:ConnString"];
-
-            if (string.IsNullOrEmpty(connString) || dataList.Count == 0) //TODO: Make the user aware of this error
-                return;
 
             string query = @"
                 UPDATE device_usages 
@@ -281,9 +366,6 @@ namespace ICard_API_Project
         private async Task UpdateDatabaseWithSessionInfoAsync(List<SessionDetails> dataList)
         {
             string? connString = _configuration["Database:ConnString"];
-
-            if (string.IsNullOrEmpty(connString) || dataList.Count == 0) //TODO: Make the user aware of this error
-                return;
 
             string query = @"
                 UPDATE session_details 
@@ -333,9 +415,6 @@ namespace ICard_API_Project
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
-                return;
-
             // Make sure any locations which couldnt have their dates parsed are filtered out
             var validData = data.Where(record => record.dateReceived != null).ToList();
             
@@ -384,9 +463,7 @@ namespace ICard_API_Project
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (string.IsNullOrEmpty(connString))
-                return;
-
+            Log.Information("Iccid table update started...");
             string sql = @"
                 INSERT INTO Iccids (iccid)
                 SELECT @Iccid
@@ -408,13 +485,12 @@ namespace ICard_API_Project
                 await connection.ExecuteAsync(sql, mappedData);
             }
         }
+
         private async Task OverwriteDatabaseWithIccidsAsync(List<string> data)
         {
             string? connString = _configuration["Database:ConnString"];
 
-            if (string.IsNullOrEmpty(connString))
-                return;
-
+            Log.Information("Iccid table overwrite started...");
             var mappedData = data
             .Where(x => !string.IsNullOrEmpty(x))
             .Distinct()
@@ -449,6 +525,7 @@ namespace ICard_API_Project
                 }
             }
         }
+
         private async Task<string[]> ReadIccidsToStringArrayAsync()
         {
             string? connString = _configuration["Database:ConnString"];
@@ -456,9 +533,6 @@ namespace ICard_API_Project
             string query = "SELECT iccid FROM Iccids";
 
             List<string> items = new List<string>();
-
-            if (string.IsNullOrEmpty(connString)) //TODO: Make the user aware of this error
-                return items.ToArray();
 
             using (SqlConnection conn = new SqlConnection(connString))
             {
@@ -481,6 +555,50 @@ namespace ICard_API_Project
             }
             items.RemoveAt(0);
             return items.ToArray();
+        }
+
+        private bool ValidateDatabaseConnection()
+        {
+            string? connString = _configuration["Database:ConnString"];
+
+            if (string.IsNullOrWhiteSpace(connString))
+            {
+                Log.Error("Database connection string is missing from the configuration file.");
+                MessageBox.Show("The database connection string is missing. Please configure it before starting.",
+                                "Configuration Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            try
+            {
+                using (var conn = new SqlConnection(connString))
+                {
+                    Log.Information("Testing database connection...");
+                    conn.Open();
+                    return true;
+                }
+            }
+            catch (ArgumentException argEx)
+            {
+                Log.Error(argEx, "The database connection string format is invalid.");
+                MessageBox.Show("The connection string format is invalid. Please check for typos.",
+                                "Configuration Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+            catch (SqlException sqlEx)
+            {
+                Log.Error(sqlEx, "Failed to connect to the database. Server may be offline or credentials are bad.");
+                MessageBox.Show($"Could not connect to the database. Please check your network and credentials.\n\nDetails: {sqlEx.Message}",
+                                "Connection Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "An unexpected error occurred while validating the database connection.");
+                MessageBox.Show("An unexpected error occurred while checking the database.",
+                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
         }
     }
 }

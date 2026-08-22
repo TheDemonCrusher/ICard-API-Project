@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net.Http.Headers;
 using System.Text;
+using Serilog;
 
 namespace ICard_API_Project
 {
@@ -26,6 +27,12 @@ namespace ICard_API_Project
             Configuration = builder.Build();
 
             var services = new ServiceCollection();
+
+            Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()            
+            .WriteTo.File("logs/app_log_.txt", rollingInterval: RollingInterval.Day
+            ,outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
 
             // Registering configuration so forms can use it if needed
             services.AddSingleton(Configuration);
